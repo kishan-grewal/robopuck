@@ -71,10 +71,43 @@ class Sim:
         self.q = torch.zeros(self.n, 3, device=self.device)
         self.q0 = torch.tensor([0.0, 0.0, 0.0], device=self.device)
 
+    def friction_force(self):
+        # F_f = -mu mg . v / (|v| + eps)
+        mag_v = torch.norm(self.v, dim=-1, keepdim=True)
+        assert(mag_v.shape == (self.n, 1))
+        return -self.mu * self.m * self.g * self.v / (mag_v + self.eps)
+
+    def pillar_force(self):
+        # F_P = k * min(0, r - R)
+        r = torch.norm(self.x - self.c_P, dim=-1, keepdim=True)  # (N, 2) and (2,) broadcasts to (N, 2) then norm we want (N, 1)
+        assert(r.shape == (self.n, 1))
+        d_pP = torch.clamp(self.r_p + self.r_P - r, min=0.0)
+        normal = (self.x - self.c_P) / (r + self.eps)  # (N, 2) and (N, 1) broadcasts to (N, 2)
+        assert(normal.shape == (self.n, 2))
+        return self.k * d_pP * normal
+
+    def contact_force(self, p, pdot):
+        # p, pdot: (N, 3) -> (N, 2)
+        pxy = p[:, :2]; pz = p[:, 2:]
+        pdotxy = pdot[:, :2]
+        # x, p, r_p, r_e
+        # Q1: are they touching and how much
+        dist = torch.norm(self.x - pxy, dim=-1, keepdim=True)  # x and pxy are both (N, 2)
+        assert(dist.shape == (self.n, 1))
+        d_pe = torch.clamp(self.r_p + self.r_e - dist, min=0.0)
+        active_z = (pz - self.r_e < self.h)
+        active_xy = (d_pe > 0.0)
+        active = (active_z & active_xy).float()  # (N, 1)
+        # Q2: which way does the puck get pushed
+        n_e = (self.x - pxy) / (dist + self.eps)
+        # Q3: how hard does the puck get pushed 
+        # spring force and damping force
+        s = -((self.v - pdotxy) * n_e).sum(dim=-1, keepdim=True) # (N, 2) product to (N, 2) then sum the 2 dim
+        # norm and dot seem to both need dim-1 keepdimTrue]
+        return torch.clip(self.k * d_pe + self.c * s, min=0.0) * n_e * active  # (N, 2)
+
     def step(self, u: torch.Tensor):
         # p = mv -> F deltat = m deltav
-        # F_f = -mu mg . v / (|v| + eps)
-        # F_P = k * min(0, r - R)
 
         # arm calcs
         assert(u.shape == (self.n, 3))
@@ -85,40 +118,11 @@ class Sim:
         pdot = (p_new - p_old) / self.dt_ctrl
 
         for i in range(4):
-            # friction force
-            mag_v = torch.norm(self.v, dim=-1, keepdim=True)
-            assert(mag_v.shape == (self.n, 1))
-            F_f = -self.mu * self.m * self.g * self.v / (mag_v + self.eps)
-
-            # pillar force
-            r = torch.norm(self.x - self.c_P, dim=-1, keepdim=True)  # (N, 2) and (2,) broadcasts to (N, 2) then norm we want (N, 1)
-            assert(r.shape == (self.n, 1))
-            d_pP = torch.clamp(self.r_p + self.r_P - r, min=0.0)
-            normal = (self.x - self.c_P) / (r + self.eps)  # (N, 2) and (N, 1) broadcasts to (N, 2)
-            assert(normal.shape == (self.n, 2))
-            # F_p = k * min(0, R - r)
-            F_p =  self.k * d_pP * normal
-
-            # arm stuff
             p = torch.lerp(p_old, p_new, (i + 1) / 4)
-            pxy = p[:, :2]; pz = p[:, 2:]
-            pdotxy = pdot[:, :2]
-            # x, p, r_p, r_e
-            # Q1: are they touching and how much
-            dist = torch.norm(self.x - pxy, dim=-1, keepdim=True)  # x and pxy are both (N, 2)
-            assert(dist.shape == (self.n, 1))
-            d_pe = torch.clamp(self.r_p + self.r_e - dist, min=0.0)
-            active_z = (pz - self.r_e < self.h)
-            active_xy = (d_pe > 0.0)
-            active = (active_z & active_xy).float()  # (N, 1)
-            # Q2: which way does the puck get pushed
-            n_e = (self.x - pxy) / (dist + self.eps)
-            # Q3: how hard does the puck get pushed 
-            # spring force and damping force
-            s = -((self.v - pdotxy) * n_e).sum(dim=-1, keepdim=True) # (N, 2) product to (N, 2) then sum the 2 dim
-            # norm and dot seem to both need dim-1 keepdimTrue]
-            F_c = torch.clip(self.k * d_pe + self.c * s, min=0.0) * n_e * active  # (N, 2)
 
+            F_f = self.friction_force()
+            F_p = self.pillar_force()
+            F_c = self.contact_force(p, pdot)
             F_resultant = F_f + F_p + F_c
 
             self.v = self.v + self.dt * F_resultant / self.m  # F_resultant = ma
