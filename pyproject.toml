@@ -1,0 +1,12 @@
+[project]
+name = "robopuck"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "beartype>=0.23.1",
+    "jaxtyping>=0.3.11",
+    "lovely-tensors>=0.1.22",
+    "rerun-sdk>=0.39.0",
+    "torch>=2.14.1",
+    "tyro>=1.0.16",
+]
