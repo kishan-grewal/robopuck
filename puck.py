@@ -48,6 +48,12 @@ def dls(J, v_des, lam=0.05):
     # qdot is torch.linalg.solve(A, b)
     return torch.linalg.solve(A, b)[..., 0]
 
+def capped_prop(p, p_target, K=5.0, v_max=0.3):
+    # (N, 3) and (N, 3) -> (N, 3)
+    e = p_target - p
+    e_mag = torch.norm(e, dim=-1, keepdim=True)  # (N, 3) -> (N, 1)
+    return K * e * torch.clamp(v_max / (K * e_mag), max=1.0)
+
 
 @dataclass
 class Sim:
@@ -209,12 +215,22 @@ class Sim:
 sim = Sim()
 
 sim.reset(torch.ones(sim.n, dtype=torch.bool, device=sim.device))
-v_des = torch.tensor([0.0, 0.1, 0.0], device=sim.device).expand(sim.n, 3)
+
+# .expand makes a view (virtual memory)
+# v_des = torch.tensor([0.0, 0.1, 0.0], device=sim.device).expand(sim.n, 3)
+example_p_target = torch.tensor([0.6, 0.3, 0.1], device=sim.device).expand(sim.n, 3)
 
 rr.init("robopuck", spawn=True)
 sim.log_scene()
 for i in range(400):
+    # calculations
+    # we did end up using fk for both (N, 3) case (p) and (3,) case (Jq)
+    p = fk(sim.q, sim.l, sim.base_z)
     Jq = jac(sim.q, sim.l, sim.base_z)  # (N, 3, 3)
+    # get the desired vel
+    v_des = capped_prop(p, example_p_target, K=5, v_max=0.3)
+
+    # step sim
     qdot = dls(Jq, v_des, lam=0.05)
     sim.step(qdot)
     sim.log(i)
