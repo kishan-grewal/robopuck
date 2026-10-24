@@ -259,7 +259,7 @@ dropped = torch.zeros(sim.n, dtype=torch.bool, device=sim.device)
 
 rr.init("robopuck", spawn=True)
 sim.log_scene()
-for i in range(400):
+for i in range(600):
     # arange is (N,) and 0 to N-1
     # but idx is (N,) and 0 1 or 2
     # we are indexing with two tensors so only the left two dims of W
@@ -281,8 +281,15 @@ for i in range(400):
     s_hi = park_spot(sim.x, w, b=0.08, z_s=0.08)
     s_lo = park_spot(sim.x, w, b=0.08, z_s=0.02)
     dist = (s_hi - p).norm(dim=-1)  # (N, 3) and (N, 3) -> (N,) (no keepdim true)
+    drift = (p[:, :2] - s_lo[:, :2]).norm(dim=-1)  # (N, 2) and (N, 2) -> (N,)
+    
     # tol 0.003 (was 0.01): the 1 cm slack let the hand start the drop already touching the puck
-    dropped = dropped | (dist < 0.003)
+    # drift 0.03 (maybe tune): should happen after each waypoint and handle the puck slipping too
+    # initial / up <- -> dropped / needs to re-adjust
+    # using OR gate in and AND gate back
+    dropped = dropped | (dist < 0.003)  # gate through into being dropped based on distance (currently dropping)
+    dropped = dropped & (drift < 0.03)  # escape gate with an AND instead of an OR, if drift > 0.03
+
     parking_spot = torch.where(dropped[:, None], s_lo, s_hi)  # (N, 1) and (N, 3) and (N, 3)
     v_track = capped_prop(p, parking_spot, K=5, v_max=0.3)
 
@@ -294,6 +301,12 @@ for i in range(400):
     landed = dropped & (p[:, 2] < 0.025)
     v_push = torch.where(landed[:, None], 0.15 * push_norm, torch.zeros_like(push_norm, device=sim.device))
     v_push = torch.cat([v_push, torch.zeros(sim.n, 1, device=sim.device)], dim=-1)
+
+    # was overshooting last waypoint, scale down as a linear capped
+    # ramp radius 0.03 within that is where it starts to slow down
+    scale_down = torch.clamp((w - sim.x).norm(dim=-1, keepdim=True) / 0.03, max=1.0)  # (N, 1)
+    scale_down = torch.where((idx == 2)[:, None], scale_down, torch.ones_like(scale_down))
+    v_push = v_push * scale_down
 
     # get desired vel
     v_des = v_track + v_push
