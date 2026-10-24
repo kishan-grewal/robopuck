@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from dataclasses import dataclass, field
 import rerun as rr
+import torch.nn.functional as F
 
 # import lovely_tensors as lt
 # lt.monkey_patch()  # lt override torch representation
@@ -63,6 +64,15 @@ def park_spot(x, w, b=0.08, z_s=0.08):  # x + 0.05 is the edge of the puck
     s = torch.cat([s_no_z, z], dim=-1)  # cat (N, 2) with (N, 1)
     return s
 
+def make_routes(side, route):
+    # (N, 2) and (3, 2) -> (N, 3, 2)
+    # entrywise product, order does not matter
+    # we want that 2 dim multiplying the other 2 dim though, and the dims must match
+    # the dims will stretch
+    # therefore we want (1, 3, 2) * (N, 1, 2)
+    return route[None] * side[:, None, :]  # imagine this with two fingers each from your left and right hands 
+    
+
 @dataclass
 class Sim:
     # sim
@@ -100,6 +110,7 @@ class Sim:
     q: torch.Tensor = field(init=False) # q1 yaw, q2 q3 pitch
 
     x0: torch.Tensor = field(init=False)
+    route: torch.Tensor = field(init=False)
     q0: torch.Tensor = field(init=False)
     c_P: torch.Tensor = field(init=False)
 
@@ -108,11 +119,13 @@ class Sim:
         self.x = torch.zeros(self.n, 2, device=self.device)
         self.v = torch.zeros(self.n, 2, device=self.device)
         self.x0 = torch.tensor([0.2, 0.0], device=self.device)
+        self.route = torch.tensor([[0.3, 0.2], [0.5, 0.2], [0.6, 0.0]], device=self.device)
         # pillar
         self.c_P = torch.tensor([0.4, 0.0], device=self.device)
         # arm
         self.q = torch.zeros(self.n, 3, device=self.device)
-        self.q0 = torch.tensor([0.0, 0.6, -1.2], device=self.device)
+        # -0.3, 1.5, -2.9
+        self.q0 = torch.tensor([-0.3, 1.5, -2.9], device=self.device)
 
     def friction_force(self):
         # F_f = -mu mg . v / (|v| + eps)
@@ -230,7 +243,16 @@ sim.reset(torch.ones(sim.n, dtype=torch.bool, device=sim.device))
 # then we had a fixed p_target
 # example_p_target = torch.tensor([0.6, 0.3, 0.1], device=sim.device).expand(sim.n, 3)
 # now we have a fixed waypoint
-example_w = torch.tensor([0.2, -0.4], device=sim.device).expand(sim.n, 2)
+# example_w = torch.tensor([0.2, -0.4], device=sim.device).expand(sim.n, 2)
+
+# now we have a list of waypoints from make_route
+coin = torch.tensor(torch.rand(sim.n) < 0.5, device=sim.device)  # (N,) but bool
+sign = torch.where(coin, 1.0, -1.0) # (N,) float
+side = torch.stack([torch.ones(sim.n, device=sim.device), sign], dim=-1)  # (N,) and (N,) -> (N, 2)
+# cat cannot make a new axis, stack can
+W = make_routes(side, sim.route)  # (N, 3, 2)
+idx = torch.zeros(sim.n, dtype=torch.long, device=sim.device)  # (N,) integers (torch.long)
+# we will index W (N, 3, 2) using an arange (N,) and the idx (N,)
 
 # s_hi to s_lo
 dropped = torch.zeros(sim.n, dtype=torch.bool, device=sim.device)
@@ -238,13 +260,26 @@ dropped = torch.zeros(sim.n, dtype=torch.bool, device=sim.device)
 rr.init("robopuck", spawn=True)
 sim.log_scene()
 for i in range(400):
+    # arange is (N,) and 0 to N-1
+    # but idx is (N,) and 0 1 or 2
+    # we are indexing with two tensors so only the left two dims of W
+    a = torch.arange(sim.n, dtype=torch.long)
+    w = W[a, idx]  # (N, 3, 2) -> (N, 2)
+
+    # integers, slices (:), None, ... all give views - think of these as slicing or reshaping
+    # tensors, bool masks give copies - think of these as querying / filtering / selecting
+
+    # update waypoint
+    passed = sim.x[:, 0] > w[:, 0]  # (N,) > (N,) -> (N,) bool
+    idx = torch.clamp(idx + passed.long(), max=2)  # long() makes bool -> int
+
     # we did end up using fk for both (N, 3) case (p) and (3,) case (Jq)
     p = fk(sim.q, sim.l, sim.base_z)
     Jq = jac(sim.q, sim.l, sim.base_z)  # (N, 3, 3)
 
     # get tracking vel
-    s_hi = park_spot(sim.x, example_w, b=0.08, z_s=0.08)
-    s_lo = park_spot(sim.x, example_w, b=0.08, z_s=0.02)
+    s_hi = park_spot(sim.x, w, b=0.08, z_s=0.08)
+    s_lo = park_spot(sim.x, w, b=0.08, z_s=0.02)
     dist = (s_hi - p).norm(dim=-1)  # (N, 3) and (N, 3) -> (N,) (no keepdim true)
     # tol 0.003 (was 0.01): the 1 cm slack let the hand start the drop already touching the puck
     dropped = dropped | (dist < 0.003)
@@ -252,7 +287,7 @@ for i in range(400):
     v_track = capped_prop(p, parking_spot, K=5, v_max=0.3)
 
     # get push vel
-    push_norm = (example_w - sim.x) / torch.norm(example_w - sim.x, dim=-1, keepdim=True)  # (N, 2) and (N, 2) -> (N, 1)
+    push_norm = (w - sim.x) / torch.norm(w - sim.x, dim=-1, keepdim=True)  # (N, 2) and (N, 2) -> (N, 1)
     # only push once the hand is down at the table (p z is the hand centre, r_e = 0.02, so 0.025 is "landed")
     # dropped alone starts the push while the hand is still coming down, which is the initial bump
     # (N,) & (N,) -> (N,), then [:, None] to line up with (N, 2) like before
