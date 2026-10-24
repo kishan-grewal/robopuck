@@ -54,6 +54,14 @@ def capped_prop(p, p_target, K=5.0, v_max=0.3):
     e_mag = torch.norm(e, dim=-1, keepdim=True)  # (N, 3) -> (N, 1)
     return K * e * torch.clamp(v_max / (K * e_mag), max=1.0)
 
+def park_spot(x, w, b=0.08, z_s=0.08):  # x + 0.05 is the edge of the puck
+    # (N, 2), (N, 2), c -> (N, 3)
+    dir = (w - x) / torch.norm(w - x, dim=-1, keepdim=True)
+    s_no_z = x - b * dir
+    first_col_from_x = x[:, :1]  # for (N, 1) we need :1 not 0
+    z = torch.full_like(first_col_from_x, z_s) # const to (N, 1)
+    s = torch.cat([s_no_z, z], dim=-1)  # cat (N, 2) with (N, 1)
+    return s
 
 @dataclass
 class Sim:
@@ -68,18 +76,18 @@ class Sim:
     a: float = 0.02
     r_p: float = 0.05
     h: float = 0.03
+    k: float = 2000
     # goal
     goal_x: float = 0.6
     # pillar
     r_P: float = 0.10
-    k: float = 2000
-    c: float = 10
     # arm
     r_e: float = 0.02
     l: float = 0.4
     base_z: float = 0.4
     u_clip: float = 2.0
     dt_ctrl: float = 0.02  # 4 sim steps per control step
+    c: float = 10
 
     device: str = "cpu"
     # device: str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -121,7 +129,7 @@ class Sim:
         assert(normal.shape == (self.n, 2))
         return self.k * d_pP * normal
 
-    def contact_force(self, p, pdot):
+    def ee_force(self, p, pdot):
         # p, pdot: (N, 3) -> (N, 2)
         pxy = p[:, :2]; pz = p[:, 2:]
         pdotxy = pdot[:, :2]
@@ -157,7 +165,7 @@ class Sim:
 
             F_f = self.friction_force()
             F_p = self.pillar_force()
-            F_c = self.contact_force(p, pdot)
+            F_c = self.ee_force(p, pdot)
             F_resultant = F_f + F_p + F_c
 
             self.v = self.v + self.dt * F_resultant / self.m  # F_resultant = ma
@@ -217,18 +225,43 @@ sim = Sim()
 sim.reset(torch.ones(sim.n, dtype=torch.bool, device=sim.device))
 
 # .expand makes a view (virtual memory)
+# first we had a fixed v
 # v_des = torch.tensor([0.0, 0.1, 0.0], device=sim.device).expand(sim.n, 3)
-example_p_target = torch.tensor([0.6, 0.3, 0.1], device=sim.device).expand(sim.n, 3)
+# then we had a fixed p_target
+# example_p_target = torch.tensor([0.6, 0.3, 0.1], device=sim.device).expand(sim.n, 3)
+# now we have a fixed waypoint
+example_w = torch.tensor([0.2, -0.4], device=sim.device).expand(sim.n, 2)
+
+# s_hi to s_lo
+dropped = torch.zeros(sim.n, dtype=torch.bool, device=sim.device)
 
 rr.init("robopuck", spawn=True)
 sim.log_scene()
 for i in range(400):
-    # calculations
     # we did end up using fk for both (N, 3) case (p) and (3,) case (Jq)
     p = fk(sim.q, sim.l, sim.base_z)
     Jq = jac(sim.q, sim.l, sim.base_z)  # (N, 3, 3)
-    # get the desired vel
-    v_des = capped_prop(p, example_p_target, K=5, v_max=0.3)
+
+    # get tracking vel
+    s_hi = park_spot(sim.x, example_w, b=0.08, z_s=0.08)
+    s_lo = park_spot(sim.x, example_w, b=0.08, z_s=0.02)
+    dist = (s_hi - p).norm(dim=-1)  # (N, 3) and (N, 3) -> (N,) (no keepdim true)
+    # tol 0.003 (was 0.01): the 1 cm slack let the hand start the drop already touching the puck
+    dropped = dropped | (dist < 0.003)
+    parking_spot = torch.where(dropped[:, None], s_lo, s_hi)  # (N, 1) and (N, 3) and (N, 3)
+    v_track = capped_prop(p, parking_spot, K=5, v_max=0.3)
+
+    # get push vel
+    push_norm = (example_w - sim.x) / torch.norm(example_w - sim.x, dim=-1, keepdim=True)  # (N, 2) and (N, 2) -> (N, 1)
+    # only push once the hand is down at the table (p z is the hand centre, r_e = 0.02, so 0.025 is "landed")
+    # dropped alone starts the push while the hand is still coming down, which is the initial bump
+    # (N,) & (N,) -> (N,), then [:, None] to line up with (N, 2) like before
+    landed = dropped & (p[:, 2] < 0.025)
+    v_push = torch.where(landed[:, None], 0.15 * push_norm, torch.zeros_like(push_norm, device=sim.device))
+    v_push = torch.cat([v_push, torch.zeros(sim.n, 1, device=sim.device)], dim=-1)
+
+    # get desired vel
+    v_des = v_track + v_push
 
     # step sim
     qdot = dls(Jq, v_des, lam=0.05)
