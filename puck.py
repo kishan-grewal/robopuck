@@ -87,8 +87,6 @@ class Sim:
     r_p: float = 0.05
     h: float = 0.03
     k: float = 2000
-    # goal
-    goal_x: float = 0.6
     # pillar
     r_P: float = 0.10
     # arm
@@ -228,9 +226,9 @@ class Sim:
 
     def log_scene(self):
         # things that never move, logged once
-        h_P = 0.3  # pillar height for display only
+        h_P = 0.045  # pillar height for display only
         rr.log("world/pillar", rr.Cylinders3D(lengths=[h_P], radii=[self.r_P], centers=[[*self.c_P.tolist(), h_P / 2]]), static=True)
-        rr.log("world/goal", rr.Cylinders3D(lengths=[0.002], radii=[0.03], centers=[[self.goal_x, 0, 0.001]], colors=[[80, 200, 120]]), static=True)
+        rr.log("world/goal", rr.Cylinders3D(lengths=[0.002], radii=[0.03], centers=[[*self.route[-1].tolist(), 0.001]], colors=[[80, 200, 120]]), static=True)
 
 
 sim = Sim()
@@ -256,8 +254,10 @@ idx = torch.zeros(sim.n, dtype=torch.long, device=sim.device)  # (N,) integers (
 
 # s_hi to s_lo
 dropped = torch.zeros(sim.n, dtype=torch.bool, device=sim.device)
+lifts = torch.zeros(sim.n, dtype=torch.long, device=sim.device)
 
-rr.init("robopuck", spawn=True)
+rr.init("robopuck")  # rr.init("robopuck", spawn=True)
+rr.connect_grpc()  # nothing without ssh
 sim.log_scene()
 for i in range(600):
     # arange is (N,) and 0 to N-1
@@ -287,8 +287,13 @@ for i in range(600):
     # drift 0.03 (maybe tune): should happen after each waypoint and handle the puck slipping too
     # initial / up <- -> dropped / needs to re-adjust
     # using OR gate in and AND gate back
+
+    # DROP GATE
     dropped = dropped | (dist < 0.003)  # gate through into being dropped based on distance (currently dropping)
+    # LIFT GATE
+    was_dropped = dropped.clone()
     dropped = dropped & (drift < 0.03)  # escape gate with an AND instead of an OR, if drift > 0.03
+    lifts = lifts + (was_dropped & ~dropped).long()
 
     parking_spot = torch.where(dropped[:, None], s_lo, s_hi)  # (N, 1) and (N, 3) and (N, 3)
     v_track = capped_prop(p, parking_spot, K=5, v_max=0.3)
