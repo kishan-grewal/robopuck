@@ -10,8 +10,7 @@ sim = Sim()
 sim.reset(torch.ones(sim.n, dtype=torch.bool, device=sim.device))
 expert = Expert(sim)
 
-rr.init("robopuck")  # rr.init("robopuck", spawn=True)
-rr.connect_grpc()  # nothing without ssh
+rr.init("robopuck", spawn=True)
 sim.log_scene()
 for i in range(600):
     # step sim
