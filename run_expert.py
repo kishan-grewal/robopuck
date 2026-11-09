@@ -1,3 +1,5 @@
+# uv run python run_expert.py
+
 import torch
 import rerun as rr
 

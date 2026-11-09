@@ -34,7 +34,7 @@ class Sim:
     dt_ctrl: float = 0.02  # 4 sim steps per control step
     c: float = 10
 
-    device: str = "cpu"
+    device: str = "cuda"
     # device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
     # (N, 2)
