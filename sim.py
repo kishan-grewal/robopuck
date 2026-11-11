@@ -49,6 +49,9 @@ class Sim:
     q0: torch.Tensor = field(init=False)
     c_P: torch.Tensor = field(init=False)
 
+    t: torch.Tensor = field(init=False)  # per env timestep
+    episode: torch.Tensor = field(init=False)  # per env episode counter
+
     def __post_init__(self):
         # puck
         self.x = torch.zeros(self.n, 2, device=self.device)
@@ -61,6 +64,10 @@ class Sim:
         self.q = torch.zeros(self.n, 3, device=self.device)
         # -0.3, 1.5, -2.9
         self.q0 = torch.tensor([-0.3, 1.5, -2.9], device=self.device)
+
+        # state
+        self.t = torch.zeros(self.n, dtype=torch.long, device=self.device)
+        self.episode = torch.full((self.n,), -1, dtype=torch.long, device=self.device)
 
     def friction_force(self):
         # F_f = -mu mg . v / (|v| + eps)
@@ -119,6 +126,24 @@ class Sim:
             self.v = self.v + self.dt * F_resultant / self.m  # F_resultant = ma
             self.x = self.x + self.dt * self.v
 
+        # new code for adding multiple episodes now, and not all the envs in lockstep since a policy can fail unlike the expert
+        self.t = self.t + 1  # (N,) broadcasts with () to (N,)
+        done = (self.t == 600)  # (N,) -> (N,)
+        goal = self.route[-1]  # (3, 2) -> (2,)
+        d_goal = torch.norm(self.x - goal, dim=-1)  # (N, 2) - (2,) broadc to (N, 2), we want to remove the last dim to get (N,)
+        success = (d_goal < 0.03)  # (N,) -> (N,)
+
+        # reset ONLY the done envs
+        # self.x = torch.where(done, self.route[0], self.x)
+        # note: The tensors condition, input, other must be broadcastable <broadcasting-semantics>.
+        # self.x = torch.where(done[:, None], .....)
+        self.reset(done)
+
+        # obs = x, v, q
+        # and we return obs, done
+        obs = torch.cat([self.x, self.v, self.q], dim=-1)
+        return obs, done, success  # (N, 7) (N,) (N,)
+
     def reset(self, mask: torch.Tensor):
         fresh: torch.Tensor = torch.rand(self.n, 2, device=self.device)
         # random in [0, 1)
@@ -126,6 +151,19 @@ class Sim:
         self.x = torch.where(mask[:, None], fresh, self.x)
         self.v = torch.where(mask[:, None], torch.zeros_like(self.v), self.v)     
         self.q = torch.where(mask[:, None], self.q0, self.q)
+
+        # state stuff
+        self.t = torch.where(mask, 0, self.t)
+        self.episode = torch.where(mask, self.episode + 1, self.episode)
+
+        # asserts
+        assert(self.x.shape == (self.n, 2))
+        assert(self.v.shape == (self.n, 2))
+        assert(self.q.shape == (self.n, 3))
+
+        assert(self.t.shape == (self.n,))
+        assert(self.episode.shape == (self.n,))
+        # even plain Python uses (x,) -> tuple but (x) -> number, this is why torch is this way
 
     def log(self, i, env=0):
         # sim knows its own state so nothing gets passed in

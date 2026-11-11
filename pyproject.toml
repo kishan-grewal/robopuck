@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "beartype>=0.23.1",
+    "icecream>=2.2.0",
     "jaxtyping>=0.3.11",
     "lovely-tensors>=0.1.22",
     "rerun-sdk>=0.39.0",
