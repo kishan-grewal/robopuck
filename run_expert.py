@@ -55,11 +55,10 @@ with Timer() as tm:
             ic(i, done.sum().item(), success[done].float().mean().item())
 
 # we have our last success here (overwritten each time by the for, and in global scope)
-flat_obs, flat_act = buffer.finish(success)
-# (T * M, 7) and (T * M, 3)
+demos = buffer.finish(success)
 
 # exit runs when the with block ends
 loop = round(tm.ms / 1000, 2)  # seconds
 
 ic(buffer.T, warmup, loop)
-# ic(flat_obs[0], flat_act[0])
+ic(demos.obs_dem[0, 0], demos.act_dem[0, 0])

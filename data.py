@@ -1,6 +1,21 @@
 import torch
 from dataclasses import dataclass, field
 
+# buffer.finish(success) returns a Demos()
+
+@dataclass
+class Demos:
+    # kwargs
+    obs_dem: torch.Tensor
+    act_dem: torch.Tensor
+    
+    # we read M and T from the tensors, so they aren't fields
+    # no init tensor creation or post_init
+
+    def sample(self):
+        pass
+
+
 # we make a buffer, each row is a pair:
 # obs, qdot
 # that obs must be what the expert saw when it chose the action
@@ -38,6 +53,7 @@ class Buffer:
     T: float
     N: float
 
+    # optional kwargs:
     device: str = "cuda"
     # device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -59,7 +75,7 @@ class Buffer:
     def finish(self, success):
         # integers, slices (:), None, ..., transpose, expand all give views - think of these as slicing or reshaping
         # tensor indexing, bool masks, give copies - think of these as querying / filtering / selecting
-        # .contigious gives a copy unless already contigious
+        # .contiguous gives a copy unless already contiguous
 
         # (T, N, 7) -> (M, T, 7)
         obs_filt = self.obs_buf.transpose(0, 1)[success]
@@ -80,6 +96,6 @@ class Buffer:
         assert(obs_filt.shape == (M, self.T, 7))
         assert(act_filt.shape == (M, self.T, 3))
 
-        return obs_filt, act_filt
+        return Demos(obs_filt, act_filt)
 
     
