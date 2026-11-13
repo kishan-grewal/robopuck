@@ -62,6 +62,4 @@ flat_obs, flat_act = buffer.finish(success)
 loop = round(tm.ms / 1000, 2)  # seconds
 
 ic(buffer.T, warmup, loop)
-ic(flat_obs[0], flat_act[0])
-print('\n')
-print("min max", flat_act.min(), flat_act.max())
+# ic(flat_obs[0], flat_act[0])
