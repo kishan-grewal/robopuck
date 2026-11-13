@@ -147,4 +147,5 @@ class Expert:
         v_des = v_track + v_push
 
         qdot = dls(Jq, v_des, lam=self.lam)
+        qdot = torch.clamp(qdot, min=-sim.u_clip, max=sim.u_clip)
         return qdot

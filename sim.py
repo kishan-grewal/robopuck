@@ -12,6 +12,7 @@ from kin import fk
 
 @dataclass
 class Sim:
+    # optional kwargs:
     # sim
     n: int = 16384
     dt: float = 0.005
@@ -37,6 +38,7 @@ class Sim:
     device: str = "cuda"
     # device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
+    # init tensor creation:
     # (N, 2)
     x: torch.Tensor = field(init=False)
     # (N, 2)
@@ -109,6 +111,8 @@ class Sim:
 
         # arm calcs
         assert(u.shape == (self.n, 3))
+        # we clamp in sim to simulate a robot that has actual joint limits
+        # but we also clamp the expert so policies learn actual good things
         u = torch.clamp(u, min=-self.u_clip, max=self.u_clip)
         p_old = fk(self.q, self.l, self.base_z)
         self.q = self.q + self.dt_ctrl * u
