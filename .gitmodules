@@ -1,0 +1,4 @@
+[submodule "math-bot"]
+	path = math-bot
+	url = git@github.com:kishan-grewal/math-bot.git
+	branch = torch-mode
