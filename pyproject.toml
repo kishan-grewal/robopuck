@@ -9,5 +9,6 @@ dependencies = [
     "lovely-tensors>=0.1.22",
     "rerun-sdk>=0.39.0",
     "torch>=2.14.1",
+    "torchinfo>=1.8.0",
     "tyro>=1.0.16",
 ]
