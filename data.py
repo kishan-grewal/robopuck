@@ -1,5 +1,6 @@
 import torch
 from dataclasses import dataclass, field
+from icecream import ic
 
 # buffer.finish(success) returns a Demos()
 
@@ -12,8 +13,43 @@ class Demos:
     # we read M and T from the tensors, so they aren't fields
     # no init tensor creation or post_init
 
-    def sample(self):
-        pass
+    def sample(self, B, K=16):
+        # for some random (e, t) in the (M, T, 7) obs_dem we have to get 
+        # the corresponding qdot, and the next 15 qdots
+        # for a chunk length of K=16 which is how much we will train the net to predict
+        # from that 16 we can actually use 16 or less in inference, how ever many we want from testing
+        # but the net itself would output 16 for every obs fed in at each timestep
+
+        device = self.obs_dem.device
+        M = self.obs_dem.shape[0]
+        T = self.obs_dem.shape[1]
+        # randint high is exclusive
+
+        # B is literally us picking how many of these we want, how many batches do we want to train on
+        env = torch.randint(M, (B,), device=device)  # random e
+        start = torch.randint(T, (B,), device=device)  # random t
+
+        # (B, 1) + (K,) -> (broadcast) (B, K)
+        # kind of like a col vector plus a row vector, becomes a 2d matrix
+        offsets = torch.arange(K, device=device)
+        time_raw = start[:, None] + offsets
+        assert(time_raw.shape == (B, K))
+
+        # pad (B, K) bool
+        pad = (time_raw >= T)  # (B, K) -> (B, K)
+        # ic(pad.shape)
+        time_clamped = torch.clamp(time_raw, max=T-1)
+
+        # we want B observations (B, 7) from obs_dem (M, T, 7)
+        # our target is a chunk of qdots (B, K, 3) from act_dem (M, T, 3)
+        # our dem tensors are each 2d mats of size (M, T) row=env, col=step
+        obs = self.obs_dem[env, start]
+        chunk = self.act_dem[env[:, None], time_clamped]  # (B, 1) broadcast (B, K) -> (B, K) pairs picked from (M, T, 3)
+
+        # When you index with two tensors, they're first broadcast against each other, right-aligned, into one common shape.
+
+        return obs, chunk, pad
+
 
 
 # we make a buffer, each row is a pair:

@@ -56,6 +56,9 @@ with Timer() as tm:
 
 # we have our last success here (overwritten each time by the for, and in global scope)
 demos = buffer.finish(success)
+obs, chunk, pad = demos.sample(10)
+# ic(pad[0])
+ic(pad.float().mean())
 
 # exit runs when the with block ends
 loop = round(tm.ms / 1000, 2)  # seconds
