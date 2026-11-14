@@ -15,6 +15,7 @@ class Sim:
     # optional kwargs:
     # sim
     n: int = 16384
+    T: int = 600
     dt: float = 0.005
     eps: float = 0.001
     g: float = 9.81

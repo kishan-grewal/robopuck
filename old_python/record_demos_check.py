@@ -1,4 +1,4 @@
-# step 1 check, throwaway. run from the repo root: PYTHONPATH=. uv run python old_python/run_expert_check.py
+# step 1 check, throwaway. run from the repo root: PYTHONPATH=. uv run python old_python/record_demos_check.py
 
 import torch
 import rerun as rr
@@ -26,7 +26,7 @@ closest = torch.full((sim.n,), float('inf'), device=sim.device)
 # print(first_step.shape, closest.shape)
 # exit()
 # Traceback (most recent call last):
-#   File "/home/kishan/robopuck/run_expert.py", line 22, in <module>
+#   File "/home/kishan/robopuck/record_demos.py", line 22, in <module>
 #     first_step = torch.full(sim.n, -1, dtype=torch.long, device=sim.device)
 #                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 # TypeError: full(): argument 'size' (position 1) must be tuple of ints, not int
