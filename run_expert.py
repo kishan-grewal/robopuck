@@ -10,8 +10,10 @@ from icecream import ic
 # sim, expert, buffer
 sim = Sim()
 expert = Expert(sim)
-buffer = Buffer(T=600, N=sim.n)
+T = 600
 episodes = 3
+buffer = Buffer(T=T, N=sim.n)
+
 
 zero_qdot = torch.zeros(sim.n, 3, device=sim.device)
 true_mask = torch.ones(sim.n, dtype=torch.bool, device=sim.device)
@@ -39,7 +41,7 @@ sim.reset(true_mask)
 obs = torch.cat([sim.x, sim.v, sim.q], dim=-1)  # (N, 7)
 
 with Timer() as tm:
-    for i in range(buffer.T * 1):
+    for i in range(T * 1):
         # the buffer needs pairs of CORRESPONDING
         # obs and qdots
         # so in this loop the PREV obs leads to this act_c
@@ -55,13 +57,21 @@ with Timer() as tm:
             ic(i, done.sum().item(), success[done].float().mean().item())
 
 # we have our last success here (overwritten each time by the for, and in global scope)
+# measure memory
+mem0 = torch.cuda.memory_allocated()
 demos = buffer.finish(success)
+mem1 = torch.cuda.memory_allocated()
+# demos copied from buffer so we can del it
+del buffer
+mem2 = torch.cuda.memory_allocated()
+
 obs, chunk, pad = demos.sample(10)
+
+ic(mem0, mem1, mem2)
 # ic(pad[0])
-ic(pad.float().mean())
 
 # exit runs when the with block ends
 loop = round(tm.ms / 1000, 2)  # seconds
 
-ic(buffer.T, warmup, loop)
+ic(T, warmup, loop)
 ic(demos.obs_dem[0, 0], demos.act_dem[0, 0])
