@@ -85,8 +85,8 @@ class Buffer:
     # a tensor = list of numbers T, shape (A, B, C..), stride (n1, n2, n3..)
 
     # kwargs:
-    T: float
-    N: float
+    T: int
+    N: int
 
     # optional kwargs:
     device: str = "cuda"
