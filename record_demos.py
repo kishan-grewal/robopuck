@@ -6,6 +6,7 @@ from expert import Expert
 from utils import Timer
 from data import Buffer
 from icecream import ic
+import pprint
 
 def record():
     # sim, expert, buffer
@@ -53,6 +54,9 @@ def record():
             if done.any():
                 expert.reset(done)
 
+    # exit runs when the with block ends
+    loop = round(tm.ms / 1000, 2)  # seconds
+
     # we have our last success here (overwritten each time by the for, and in global scope)
     # measure memory
     mem0 = torch.cuda.memory_allocated()
@@ -60,18 +64,18 @@ def record():
     mem1 = torch.cuda.memory_allocated()
     del buffer
     mem2 = torch.cuda.memory_allocated()
-
     memory = {"mem0": mem0, "mem1": mem1, "mem2": mem2}
 
-    # exit runs when the with block ends
-    loop = round(tm.ms / 1000, 2)  # seconds
-
-    return demos, sim.T, warmup, loop, memory
+    stats = {"n": sim.n, "T": sim.T, "warmup_s": warmup, "loop_s": loop, "memory": memory}
+    return demos, stats
 
 def main():
-    demos, T, warmup, loop, memory = record()
-    ic(T, warmup, loop, memory)
-    ic(demos.obs_dem[0, 0], demos.act_dem[0, 0])
+    # ic sorts dict keys alphabetically by default, keep the order we wrote
+    ic.configureOutput(argToStringFunction=lambda o: pprint.pformat(o, sort_dicts=False))
+    # # # # #
+
+    demos, stats = record()
+    ic(stats); ic(demos.obs_dem[0, 0], demos.act_dem[0, 0])
 
 # when you run uv run python train.py, you set the __name__ of train.py to __main__
 # and any other files run from train.py e.g. import record_demos is set to record_demos

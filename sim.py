@@ -133,7 +133,7 @@ class Sim:
 
         # new code for adding multiple episodes now, and not all the envs in lockstep since a policy can fail unlike the expert
         self.t = self.t + 1  # (N,) broadcasts with () to (N,)
-        done = (self.t == 600)  # (N,) -> (N,)
+        done = (self.t == self.T)  # (N,) -> (N,)
         goal = self.route[-1]  # (3, 2) -> (2,)
         d_goal = torch.norm(self.x - goal, dim=-1)  # (N, 2) - (2,) broadc to (N, 2), we want to remove the last dim to get (N,)
         success = (d_goal < 0.03)  # (N,) -> (N,)
