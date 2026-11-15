@@ -55,5 +55,6 @@ Finished teaching pages, in the order they were written. Each is a `.typ` source
   [25], [`25_normalizer`], [step 6a: the Normalizer module with buffers],
   [26], [`26_mse_policy`], [step 6b: MSEPolicy, forward, act, masked loss],
   [27], [`27_training_loop`], [step 6c: the training loop],
+  [28], [`28_contact_findings`], [step 6e: where the hand first touches the puck, expert vs MSE, measured, plus what to add for flow],
 )
 ] // claude:end
