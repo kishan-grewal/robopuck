@@ -50,9 +50,9 @@ def record():
             buffer.add(t, obs, qdot)
 
             # new obs defined
-            obs, done, success = step_c(qdot)
-            if done.any():
-                expert.reset(done)
+            obs, _, success = step_c(qdot)
+            # if done.any():
+            #     expert.reset(done)
 
     # exit runs when the with block ends
     loop = round(tm.ms / 1000, 2)  # seconds
